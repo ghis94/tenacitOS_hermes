@@ -1,0 +1,32 @@
+{
+  "agent": {
+    "name": "Hermes",
+    "creature": "Autonomous CLI Agent",
+    "emoji": "🤖"
+  },
+  "system": {
+    "uptime": 45210,
+    "uptimeFormatted": "12h 33m",
+    "nodeVersion": "v22.15.0",
+    "model": "gpt-5.4",
+    "workspacePath": "/hermes/workspaces/main",
+    "platform": "linux",
+    "hostname": "hermes-demo",
+    "memory": {
+      "total": 17179869184,
+      "free": 8589934592,
+      "used": 8589934592
+    }
+  },
+  "integrations": [
+    {
+      "id": "localai",
+      "name": "LocalAI",
+      "status": "configured",
+      "icon": "Server",
+      "lastActivity": "2026-04-01T13:20:00.000Z",
+      "detail": "http://192.168.1.196:8081"
+    }
+  ],
+  "timestamp": "2026-04-01T13:20:00.000Z"
+}

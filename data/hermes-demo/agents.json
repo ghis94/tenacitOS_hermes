@@ -1,0 +1,33 @@
+[
+  {
+    "id": "main",
+    "name": "Hermes",
+    "emoji": "🤖",
+    "color": "#7c3aed",
+    "model": "gpt-5.4",
+    "workspace": "/hermes/workspaces/main",
+    "status": "online",
+    "lastActivity": "2026-04-01T13:20:00.000Z",
+    "subagents": ["research", "builder"]
+  },
+  {
+    "id": "research",
+    "name": "Research",
+    "emoji": "🔎",
+    "color": "#2563eb",
+    "model": "gpt-5.4",
+    "workspace": "/hermes/workspaces/research",
+    "status": "idle",
+    "lastActivity": "2026-04-01T13:16:00.000Z"
+  },
+  {
+    "id": "builder",
+    "name": "Builder",
+    "emoji": "🛠️",
+    "color": "#f97316",
+    "model": "gpt-5.4",
+    "workspace": "/hermes/workspaces/builder",
+    "status": "offline",
+    "lastActivity": "2026-04-01T12:40:00.000Z"
+  }
+]

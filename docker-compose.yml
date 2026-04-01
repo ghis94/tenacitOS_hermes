@@ -1,0 +1,25 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DASHBOARD_PROVIDER: ${DASHBOARD_PROVIDER:-hermes}
+      HERMES_MODE: ${HERMES_MODE:-demo}
+      HERMES_ROOT_DIR: ${HERMES_ROOT_DIR:-/hermes}
+      HERMES_WORKSPACES_DIR: ${HERMES_WORKSPACES_DIR:-/hermes/workspaces}
+      HERMES_MAIN_WORKSPACE: ${HERMES_MAIN_WORKSPACE:-/hermes/workspaces/main}
+      HERMES_SESSIONS_DIR: ${HERMES_SESSIONS_DIR:-/hermes/sessions}
+      HERMES_SKILLS_DIR: ${HERMES_SKILLS_DIR:-/hermes/skills}
+      HERMES_LOGS_DIR: ${HERMES_LOGS_DIR:-/hermes/logs}
+      HERMES_AGENT_REGISTRY_PATH: ${HERMES_AGENT_REGISTRY_PATH:-/hermes/agents.json}
+      HERMES_INGEST_TOKEN: ${HERMES_INGEST_TOKEN:-change-me}
+    volumes:
+      - ./data:/app/data
+      - ${HERMES_HOST_DIR:-./data/hermes-demo}:/hermes:ro
+    restart: unless-stopped

@@ -38,8 +38,14 @@ interface SkillsConfig {
 }
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'configured-skills.json');
-const DEFAULT_SYSTEM_PATH = '/usr/lib/node_modules/openclaw/skills';
-const DEFAULT_WORKSPACE_PATH = (process.env.OPENCLAW_DIR || '/root/.openclaw') + '/workspace-infra/skills';
+const DEFAULT_SYSTEM_PATH =
+  process.env.DASHBOARD_PROVIDER === 'openclaw'
+    ? '/usr/lib/node_modules/openclaw/skills'
+    : (process.env.HERMES_SKILLS_DIR || '/hermes/skills');
+const DEFAULT_WORKSPACE_PATH =
+  process.env.DASHBOARD_PROVIDER === 'openclaw'
+    ? (process.env.OPENCLAW_DIR || '/root/.openclaw') + '/workspace-infra/skills'
+    : (process.env.HERMES_MAIN_WORKSPACE || '/hermes/workspaces/main') + '/skills';
 
 /**
  * Parse SKILL.md front matter (YAML between --- delimiters)

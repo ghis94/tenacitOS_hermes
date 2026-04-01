@@ -1,0 +1,32 @@
+[
+  {
+    "id": "m1",
+    "type": "user",
+    "role": "user",
+    "content": "Adapte ce dashboard pour Hermes.",
+    "timestamp": "2026-04-01T13:00:00.000Z"
+  },
+  {
+    "id": "m2",
+    "type": "assistant",
+    "role": "assistant",
+    "content": "Je commence par introduire une couche provider et un mode demo Hermes.",
+    "timestamp": "2026-04-01T13:00:05.000Z",
+    "model": "gpt-5.4"
+  },
+  {
+    "id": "m3",
+    "type": "tool_use",
+    "role": "assistant",
+    "content": "patch(src/lib/providers/*)",
+    "timestamp": "2026-04-01T13:00:10.000Z",
+    "toolName": "patch"
+  },
+  {
+    "id": "m4",
+    "type": "tool_result",
+    "role": "tool",
+    "content": "Provider layer written successfully.",
+    "timestamp": "2026-04-01T13:00:11.000Z"
+  }
+]

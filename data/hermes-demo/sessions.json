@@ -1,0 +1,41 @@
+[
+  {
+    "id": "demo-main-session",
+    "key": "agent:main:main",
+    "type": "main",
+    "typeLabel": "Main Session",
+    "typeEmoji": "🤖",
+    "sessionId": "demo-main-session",
+    "updatedAt": 1775050000000,
+    "ageMs": 120000,
+    "model": "gpt-5.4",
+    "modelProvider": "openai-codex",
+    "inputTokens": 1200,
+    "outputTokens": 800,
+    "totalTokens": 2000,
+    "contextTokens": 128000,
+    "contextUsedPercent": 2,
+    "aborted": false,
+    "agentId": "main"
+  },
+  {
+    "id": "demo-research-session",
+    "key": "agent:main:subagent:research",
+    "type": "subagent",
+    "typeLabel": "Sub-agent",
+    "typeEmoji": "🔎",
+    "sessionId": "demo-research-session",
+    "subagentId": "research",
+    "updatedAt": 1775049900000,
+    "ageMs": 360000,
+    "model": "gpt-5.4",
+    "modelProvider": "openai-codex",
+    "inputTokens": 640,
+    "outputTokens": 510,
+    "totalTokens": 1150,
+    "contextTokens": 128000,
+    "contextUsedPercent": 1,
+    "aborted": false,
+    "agentId": "research"
+  }
+]

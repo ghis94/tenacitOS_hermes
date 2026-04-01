@@ -1,0 +1,18 @@
+[
+  {
+    "id": "r1",
+    "type": "assistant",
+    "role": "assistant",
+    "content": "Analyse du repo tenacitOS terminée.",
+    "timestamp": "2026-04-01T12:58:00.000Z",
+    "model": "gpt-5.4"
+  },
+  {
+    "id": "r2",
+    "type": "assistant",
+    "role": "assistant",
+    "content": "Le couplage principal est dans les routes API et les chemins OpenClaw.",
+    "timestamp": "2026-04-01T12:58:03.000Z",
+    "model": "gpt-5.4"
+  }
+]
