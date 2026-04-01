@@ -1,66 +1,60 @@
-import { NextResponse } from "next/server";
-import { readFileSync, readdirSync, statSync } from "fs";
-import { join } from "path";
+import { NextResponse } from 'next/server';
+import { readdirSync, statSync } from 'fs';
+import { join } from 'path';
 
-export const dynamic = "force-dynamic";
+import { getProvider } from '@/lib/providers';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
+    const provider = getProvider();
+    const agents = await provider.listAgents();
+    const agent = agents.find((entry) => entry.id === id);
 
-    // Read openclaw config
-    const configPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json";
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-
-    // Find agent
-    const agent = config.agents.list.find((a: any) => a.id === id);
     if (!agent) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+      return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    // Get memory files
-    const memoryPath = join(agent.workspace, "memory");
-    let recentFiles: Array<{ date: string; size: number; modified: string }> =
-      [];
+    const memoryPath = join(agent.workspace, 'memory');
+    let recentFiles: Array<{ date: string; size: number; modified: string }> = [];
 
     try {
-      const files = readdirSync(memoryPath).filter((f) =>
-        f.match(/^\d{4}-\d{2}-\d{2}\.md$/)
-      );
+      const files = readdirSync(memoryPath).filter((entry) => entry.match(/^\d{4}-\d{2}-\d{2}\.md$/));
       recentFiles = files
         .map((file) => {
           const stat = statSync(join(memoryPath, file));
           return {
-            date: file.replace(".md", ""),
+            date: file.replace('.md', ''),
             size: stat.size,
             modified: stat.mtime.toISOString(),
           };
         })
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 7);
-    } catch (e) {
-      // Memory directory doesn't exist
+    } catch {
+      // ignore missing memory directory
     }
 
-    // Get session info (from OpenClaw API if available)
-    // For now, we return mock data
-    const sessions: Array<any> = [];
-
-    // Get telegram account info
-    const telegramAccount = config.channels?.telegram?.accounts?.[id];
+    const sessions = (await provider.listSessions()).filter(
+      (session) => session.agentId === id || session.subagentId === id,
+    );
 
     return NextResponse.json({
       agent: {
         id: agent.id,
         name: agent.name,
-        model: agent.model?.primary || config.agents.defaults.model.primary,
+        model: agent.model,
         workspace: agent.workspace,
-        dmPolicy: telegramAccount?.dmPolicy,
-        allowAgents: agent.subagents?.allowAgents || [],
-        telegramConfigured: !!telegramAccount?.botToken,
+        dmPolicy: agent.dmPolicy,
+        allowAgents: agent.allowAgents || [],
+        telegramConfigured: !!agent.botToken,
+        status: agent.status,
+        lastActivity: agent.lastActivity,
       },
       memory: {
         recentFiles,
@@ -68,10 +62,7 @@ export async function GET(
       sessions,
     });
   } catch (error) {
-    console.error("Error getting agent status:", error);
-    return NextResponse.json(
-      { error: "Failed to get agent status" },
-      { status: 500 }
-    );
+    console.error('Error getting agent status:', error);
+    return NextResponse.json({ error: 'Failed to get agent status' }, { status: 500 });
   }
 }

@@ -1,13 +1,8 @@
-/**
- * Memory full-text search API
- * GET /api/memory/search?q=<query>
- */
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/root/.openclaw';
-const WORKSPACE = path.join(OPENCLAW_DIR, 'workspace');
+import { getWorkspaceMap } from '@/lib/workspace-utils';
 
 interface SearchResult {
   file: string;
@@ -24,7 +19,6 @@ async function searchFile(filePath: string, query: string, displayPath: string):
     const queryLower = query.toLowerCase();
     const words = queryLower.split(/\s+/).filter(Boolean);
 
-    // Count matches for each word
     let totalMatches = 0;
     for (const word of words) {
       let pos = 0;
@@ -38,7 +32,6 @@ async function searchFile(filePath: string, query: string, displayPath: string):
 
     if (totalMatches === 0) return null;
 
-    // Extract snippet around first match
     const firstMatchIdx = lower.indexOf(words[0]);
     const snippetStart = Math.max(0, firstMatchIdx - 60);
     const snippetEnd = Math.min(content.length, firstMatchIdx + 200);
@@ -46,7 +39,6 @@ async function searchFile(filePath: string, query: string, displayPath: string):
     if (snippetStart > 0) snippet = '...' + snippet;
     if (snippetEnd < content.length) snippet = snippet + '...';
 
-    // Get title (first heading or filename)
     const titleMatch = content.match(/^#\s+(.+)/m);
     const title = titleMatch ? titleMatch[1] : path.basename(filePath, '.md');
 
@@ -58,27 +50,32 @@ async function searchFile(filePath: string, query: string, displayPath: string):
 
 async function getFiles(): Promise<Array<{ path: string; display: string }>> {
   const files: Array<{ path: string; display: string }> = [];
+  const workspaceMap = getWorkspaceMap();
 
-  // Root workspace files
-  const rootFiles = ['MEMORY.md', 'SOUL.md', 'USER.md', 'AGENTS.md', 'TOOLS.md', 'IDENTITY.md', 'HEARTBEAT.md'];
-  for (const f of rootFiles) {
-    const full = path.join(WORKSPACE, f);
-    try {
-      await fs.access(full);
-      files.push({ path: full, display: f });
-    } catch {}
-  }
-
-  // Memory directory
-  try {
-    const memDir = path.join(WORKSPACE, 'memory');
-    const memFiles = await fs.readdir(memDir);
-    for (const f of memFiles.sort().reverse().slice(0, 30)) { // last 30 days
-      if (f.endsWith('.md')) {
-        files.push({ path: path.join(memDir, f), display: `memory/${f}` });
+  for (const [workspaceId, workspacePath] of Object.entries(workspaceMap)) {
+    const rootFiles = ['MEMORY.md', 'SOUL.md', 'USER.md', 'AGENTS.md', 'TOOLS.md', 'IDENTITY.md', 'HEARTBEAT.md'];
+    for (const entry of rootFiles) {
+      const full = path.join(workspacePath, entry);
+      try {
+        await fs.access(full);
+        files.push({ path: full, display: `${workspaceId}/${entry}` });
+      } catch {
+        // ignore
       }
     }
-  } catch {}
+
+    try {
+      const memDir = path.join(workspacePath, 'memory');
+      const memFiles = await fs.readdir(memDir);
+      for (const entry of memFiles.sort().reverse().slice(0, 30)) {
+        if (entry.endsWith('.md')) {
+          files.push({ path: path.join(memDir, entry), display: `${workspaceId}/memory/${entry}` });
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   return files;
 }
@@ -93,7 +90,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const files = await getFiles();
-    const results = await Promise.all(files.map((f) => searchFile(f.path, query, f.display)));
+    const results = await Promise.all(files.map((file) => searchFile(file.path, query, file.display)));
     const sorted = results
       .filter(Boolean)
       .sort((a, b) => (b?.matches || 0) - (a?.matches || 0)) as SearchResult[];

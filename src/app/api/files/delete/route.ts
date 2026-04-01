@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
+
 import { logActivity } from '@/lib/activities-db';
+import { resolveSafePath, resolveWorkspacePath } from '@/lib/workspace-utils';
 
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/root/.openclaw';
-
-const WORKSPACE_MAP: Record<string, string> = {
-  workspace: path.join(OPENCLAW_DIR, 'workspace'),
-  'mission-control': path.join(OPENCLAW_DIR, 'workspace', 'mission-control'),
-};
-
-// Protected paths - never allow deletion
 const PROTECTED = [
   'MEMORY.md', 'SOUL.md', 'USER.md', 'AGENTS.md', 'TOOLS.md',
   'package.json', 'tsconfig.json', '.env', '.env.local',
@@ -25,13 +19,13 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Missing path' }, { status: 400 });
     }
 
-    const base = WORKSPACE_MAP[workspace || 'workspace'];
+    const base = resolveWorkspacePath(workspace || 'workspace');
     if (!base) {
       return NextResponse.json({ error: 'Unknown workspace' }, { status: 400 });
     }
 
-    const fullPath = path.resolve(base, filePath);
-    if (!fullPath.startsWith(base)) {
+    const fullPath = resolveSafePath(base, filePath);
+    if (!fullPath) {
       return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
     }
 

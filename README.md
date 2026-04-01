@@ -407,15 +407,18 @@
    407|- [Discord Community](https://discord.com/invite/clawd)
    408|- [GitHub Issues](../../issues) — bug reports and feature requests
    409|
-## Hermes mode (Phase 1)
+## Hermes mode
 
-This fork adds an initial Hermes-compatible provider layer.
+This fork now includes a substantially adapted Hermes-compatible dashboard.
 
 Current status:
 - `DASHBOARD_PROVIDER=hermes` supported
 - `HERMES_MODE=demo` supported out of the box
+- `HERMES_MODE=filesystem` supported for mounted workspaces/sessions
+- `HERMES_MODE=api` supported for remote Hermes runtimes
 - Docker deployment included
-- Agents, sessions, system info, skills, and office view now resolve via a pluggable provider
+- Agents, sessions, system info, skills, office view, workspaces, file browsing, memory search, health checks, and log streaming now work through Hermes-oriented configuration
+- External Hermes runtimes can push live activity events to `POST /api/activities`
 
 Quick start:
 
@@ -426,8 +429,21 @@ docker compose up --build
 
 Then open: `http://localhost:3000`
 
+Default login:
+- use the `ADMIN_PASSWORD` value from your `.env`
+
+Important environment variables:
+- `DASHBOARD_PROVIDER=hermes`
+- `HERMES_MODE=demo|filesystem|api`
+- `HERMES_HOST_DIR=./data/hermes-demo` for demo/filesystem Docker mounts
+- `HERMES_API_BASE_URL=http://host.docker.internal:8787` for API mode
+- `HERMES_API_TOKEN=` optional bearer token for API mode
+- `HERMES_INGEST_TOKEN=...` for posting runtime activity events
+- `HERMES_SERVICES=mission-control:systemd:Mission Control,hermes-runtime:systemd:Hermes Runtime` for health/log views
+
 Notes:
 - Default mode is `hermes` + `demo` so the UI boots without a real Hermes backend.
 - `HERMES_MODE=filesystem` reads agents/sessions from mounted files and workspaces.
 - `HERMES_MODE=api` reads agents/sessions/system info from `HERMES_API_BASE_URL`.
 - External Hermes runtimes can push live activity events to `POST /api/activities` using `x-hermes-ingest-token: $HERMES_INGEST_TOKEN`.
+- For production standalone runtime, use `node .next/standalone/server.js`.

@@ -1,7 +1,3 @@
-/**
- * Health check endpoint
- * GET /api/health - Check health of all services and integrations
- */
 import { NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -14,6 +10,18 @@ interface ServiceCheck {
   latency?: number;
   details?: string;
   url?: string;
+}
+
+function parseServiceDefs() {
+  const raw = process.env.HERMES_SERVICES || 'mission-control:systemd:Mission Control,hermes-runtime:systemd:Hermes Runtime';
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [name, backend, label] = entry.split(':');
+      return { name, backend: backend || 'systemd', label: label || name };
+    });
 }
 
 async function checkUrl(url: string, timeoutMs = 5000): Promise<{ status: 'up' | 'down'; latency: number; httpCode?: number }> {
@@ -43,8 +51,8 @@ async function checkSystemdService(name: string): Promise<ServiceCheck> {
 async function checkPm2Service(name: string): Promise<ServiceCheck> {
   try {
     const { stdout } = await execAsync('pm2 jlist 2>/dev/null');
-    const list = JSON.parse(stdout);
-    const proc = list.find((p: { name: string }) => p.name === name);
+    const list = JSON.parse(stdout) as Array<{ name: string; pm2_env?: { status?: string; restart_time?: number } }>;
+    const proc = list.find((entry) => entry.name === name);
     if (!proc) return { name, status: 'unknown', details: 'not found in pm2' };
     const status = proc.pm2_env?.status === 'online' ? 'up' : 'down';
     return { name, status, details: `${proc.pm2_env?.status} · restarts: ${proc.pm2_env?.restart_time}` };
@@ -53,46 +61,67 @@ async function checkPm2Service(name: string): Promise<ServiceCheck> {
   }
 }
 
+async function checkDockerService(name: string): Promise<ServiceCheck> {
+  try {
+    const { stdout } = await execAsync(`docker inspect -f '{{.State.Running}}' ${name} 2>/dev/null`);
+    return { name, status: stdout.trim() === 'true' ? 'up' : 'down', details: stdout.trim() };
+  } catch {
+    return { name, status: 'unknown', details: 'docker not available or container missing' };
+  }
+}
+
 export async function GET() {
   const checks: ServiceCheck[] = [];
 
-  // Internal services
-  const [missionControl, gateway] = await Promise.all([
-    checkSystemdService('mission-control'),
-    checkSystemdService('openclaw-gateway'),
-  ]);
-  checks.push({ ...missionControl, name: 'Mission Control' });
-  checks.push({ ...gateway, name: 'OpenClaw Gateway' });
+  const serviceChecks = await Promise.all(
+    parseServiceDefs().map(async (service) => {
+      if (service.backend === 'pm2') {
+        const result = await checkPm2Service(service.name);
+        return { ...result, name: service.label };
+      }
+      if (service.backend === 'docker') {
+        const result = await checkDockerService(service.name);
+        return { ...result, name: service.label };
+      }
+      const result = await checkSystemdService(service.name);
+      return { ...result, name: service.label };
+    }),
+  );
+  checks.push(...serviceChecks);
 
-  // PM2 services
-  const pm2Services = ['classvault', 'content-vault', 'brain'];
-  const pm2Checks = await Promise.all(pm2Services.map(checkPm2Service));
-  checks.push(...pm2Checks);
+  const urlTargets = [
+    {
+      name: 'LocalAI',
+      url: process.env.LOCALAI_BASE_URL || 'http://192.168.1.196:8081',
+      timeout: 3000,
+      accept401: false,
+    },
+  ];
 
-  // External URLs
-  const urlChecks = await Promise.all([
-    checkUrl('https://tenacitas.cazaustre.dev'),
-    checkUrl('https://api.anthropic.com', 3000),
-  ]);
+  if (process.env.HERMES_API_BASE_URL && process.env.HERMES_MODE === 'api') {
+    urlTargets.push({
+      name: 'Hermes API',
+      url: process.env.HERMES_API_BASE_URL,
+      timeout: 3000,
+      accept401: true,
+    });
+  }
 
-  checks.push({
-    name: 'tenacitas.cazaustre.dev',
-    status: urlChecks[0].status,
-    latency: urlChecks[0].latency,
-    url: 'https://tenacitas.cazaustre.dev',
+  const urlChecks = await Promise.all(urlTargets.map((entry) => checkUrl(entry.url, entry.timeout)));
+  urlTargets.forEach((target, index) => {
+    const result = urlChecks[index];
+    const reachable = result.status === 'up' || (target.accept401 && result.httpCode === 401);
+    checks.push({
+      name: target.name,
+      status: reachable ? 'up' : result.status,
+      latency: result.latency,
+      url: target.url,
+      details: reachable ? 'reachable' : 'unreachable',
+    });
   });
 
-  checks.push({
-    name: 'Anthropic API',
-    status: urlChecks[1].status === 'up' || (urlChecks[1] as { httpCode?: number }).httpCode === 401 ? 'up' : urlChecks[1].status,
-    latency: urlChecks[1].latency,
-    url: 'https://api.anthropic.com',
-    details: urlChecks[1].status === 'up' || (urlChecks[1] as { httpCode?: number }).httpCode === 401 ? 'reachable' : 'unreachable',
-  });
-
-  // Overall status
-  const downCount = checks.filter((c) => c.status === 'down').length;
-  const overallStatus = downCount === 0 ? 'healthy' : downCount < checks.length / 2 ? 'degraded' : 'critical';
+  const downCount = checks.filter((entry) => entry.status === 'down').length;
+  const overallStatus = downCount === 0 ? 'healthy' : downCount < Math.max(1, checks.length / 2) ? 'degraded' : 'critical';
 
   return NextResponse.json({
     status: overallStatus,

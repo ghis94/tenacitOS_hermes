@@ -1,28 +1,37 @@
-/**
- * Service action API
- * POST /api/system/services
- * Body: { name, backend, action }  action: restart | stop | start | logs
- */
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const ALLOWED_SERVICES_PM2 = ['classvault', 'content-vault', 'postiz-simple', 'brain'];
-const ALLOWED_SERVICES_SYSTEMD = ['mission-control', 'openclaw-gateway', 'nginx'];
+type ServiceBackend = 'pm2' | 'systemd' | 'docker';
+
+interface ServiceDef {
+  name: string;
+  backend: ServiceBackend;
+  label: string;
+}
+
+function loadServices(): ServiceDef[] {
+  const raw = process.env.HERMES_SERVICES || 'mission-control:systemd:Mission Control,hermes-runtime:systemd:Hermes Runtime';
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [name, backend, label] = entry.split(':');
+      return {
+        name,
+        backend: (backend as ServiceBackend) || 'systemd',
+        label: label || name,
+      };
+    });
+}
+
 const ALLOWED_DOCKER_IDS_PATTERN = /^[a-f0-9]{6,64}$|^[a-zA-Z0-9_-]+$/;
 
 async function pm2Action(name: string, action: string): Promise<string> {
-  if (!ALLOWED_SERVICES_PM2.includes(name)) {
-    throw new Error(`Service "${name}" not in allowlist`);
-  }
-  if (!['restart', 'stop', 'start', 'logs'].includes(action)) {
-    throw new Error(`Invalid action "${action}"`);
-  }
-
   if (action === 'logs') {
-    // Get last 100 lines of PM2 logs
     try {
       const logFile = `/root/.pm2/logs/${name}-out.log`;
       const { stdout } = await execAsync(`tail -100 "${logFile}" 2>/dev/null || echo "No logs available"`);
@@ -39,13 +48,6 @@ async function pm2Action(name: string, action: string): Promise<string> {
 }
 
 async function systemdAction(name: string, action: string): Promise<string> {
-  if (!ALLOWED_SERVICES_SYSTEMD.includes(name)) {
-    throw new Error(`Service "${name}" not in allowlist`);
-  }
-  if (!['restart', 'stop', 'start', 'logs'].includes(action)) {
-    throw new Error(`Invalid action "${action}"`);
-  }
-
   if (action === 'logs') {
     const { stdout } = await execAsync(`journalctl -u "${name}" -n 100 --no-pager 2>&1`);
     return stdout;
@@ -59,10 +61,6 @@ async function dockerAction(id: string, action: string): Promise<string> {
   if (!ALLOWED_DOCKER_IDS_PATTERN.test(id)) {
     throw new Error(`Invalid container ID "${id}"`);
   }
-  if (!['start', 'stop', 'restart', 'logs'].includes(action)) {
-    throw new Error(`Invalid action "${action}"`);
-  }
-
   if (action === 'logs') {
     const { stdout } = await execAsync(`docker logs --tail 100 "${id}" 2>&1`);
     return stdout;
@@ -70,6 +68,10 @@ async function dockerAction(id: string, action: string): Promise<string> {
 
   const { stdout } = await execAsync(`docker ${action} "${id}" 2>&1`);
   return stdout || `${action} executed successfully`;
+}
+
+export async function GET() {
+  return NextResponse.json({ services: loadServices() });
 }
 
 export async function POST(request: NextRequest) {
@@ -81,8 +83,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing name, backend or action' }, { status: 400 });
     }
 
-    let output = '';
+    const allowed = loadServices().find((service) => service.name === name && service.backend === backend);
+    if (!allowed) {
+      return NextResponse.json({ error: `Service "${name}" is not allowed` }, { status: 403 });
+    }
 
+    let output = '';
     switch (backend) {
       case 'pm2':
         output = await pm2Action(name, action);

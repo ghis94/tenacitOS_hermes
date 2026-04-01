@@ -9,14 +9,10 @@ interface LogLine {
   id: number;
 }
 
-const SERVICES = [
+const DEFAULT_SERVICES = [
   { name: "mission-control", backend: "systemd", label: "Mission Control" },
-  { name: "classvault", backend: "pm2", label: "ClassVault" },
-  { name: "content-vault", backend: "pm2", label: "Content Vault" },
-  { name: "brain", backend: "pm2", label: "Brain" },
-  { name: "postiz-simple", backend: "pm2", label: "Postiz" },
-  { name: "openclaw-gateway", backend: "systemd", label: "Gateway" },
-];
+  { name: "hermes-runtime", backend: "systemd", label: "Hermes Runtime" },
+] as const;
 
 function getLineColor(line: string): string {
   const lower = line.toLowerCase();
@@ -29,7 +25,8 @@ function getLineColor(line: string): string {
 }
 
 export default function LogsPage() {
-  const [selectedService, setSelectedService] = useState(SERVICES[0]);
+  const [services, setServices] = useState<Array<{ name: string; backend: string; label: string }>>([...DEFAULT_SERVICES]);
+  const [selectedService, setSelectedService] = useState<{ name: string; backend: string; label: string }>(DEFAULT_SERVICES[0]);
   const [lines, setLines] = useState<LogLine[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -75,6 +72,21 @@ export default function LogsPage() {
     esRef.current = null;
     setStreaming(false);
   };
+
+  useEffect(() => {
+    fetch('/api/system/services')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.services) && data.services.length > 0) {
+          setServices(data.services);
+          setSelectedService(data.services[0]);
+        }
+      })
+      .catch(() => {
+        setServices([...DEFAULT_SERVICES]);
+        setSelectedService(DEFAULT_SERVICES[0]);
+      });
+  }, []);
 
   // Auto-scroll
   useEffect(() => {
@@ -128,7 +140,7 @@ export default function LogsPage() {
       }}>
         {/* Service selector */}
         <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
-          {SERVICES.map((svc) => (
+          {services.map((svc) => (
             <button
               key={svc.name}
               onClick={() => { setSelectedService(svc); stopStream(); setLines([]); }}
