@@ -1,141 +1,113 @@
-import { NextRequest, NextResponse } from "next/server";
-import { execSync } from "child_process";
+import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
-function getGatewayConfig() {
+const CRON_JOBS_PATH = path.join(process.cwd(), 'data', 'cron-jobs.json');
+const CRON_JOBS_EXAMPLE_PATH = path.join(process.cwd(), 'data', 'cron-jobs.example.json');
+
+interface CronJobRecord {
+  id: string;
+  name: string;
+  description?: string;
+  schedule?: string;
+  timezone?: string;
+  enabled?: boolean;
+  lastStatus?: string | null;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  lastDurationMs?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+function loadJobs(): CronJobRecord[] {
+  const target = fs.existsSync(CRON_JOBS_PATH) ? CRON_JOBS_PATH : CRON_JOBS_EXAMPLE_PATH;
   try {
-    const configRaw = require("fs").readFileSync((process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json", "utf-8");
-    const config = JSON.parse(configRaw);
-    return {
-      token: config.gateway?.auth?.token || "",
-      port: config.gateway?.port || 18789,
-    };
+    return JSON.parse(fs.readFileSync(target, 'utf-8')) as CronJobRecord[];
   } catch {
-    return { token: "", port: 18789 };
+    return [];
   }
 }
 
-// GET: List all cron jobs from the OpenClaw gateway
+function saveJobs(jobs: CronJobRecord[]) {
+  fs.mkdirSync(path.dirname(CRON_JOBS_PATH), { recursive: true });
+  fs.writeFileSync(CRON_JOBS_PATH, JSON.stringify(jobs, null, 2));
+}
+
+function toUiJob(job: CronJobRecord) {
+  return {
+    id: job.id,
+    agentId: 'main',
+    name: job.name || 'Unnamed',
+    enabled: job.enabled ?? true,
+    createdAtMs: job.createdAt ? new Date(job.createdAt).getTime() : Date.now(),
+    updatedAtMs: job.updatedAt ? new Date(job.updatedAt).getTime() : Date.now(),
+    schedule: { kind: 'cron', expr: job.schedule || '* * * * *', tz: job.timezone || 'UTC' },
+    sessionTarget: null,
+    payload: { kind: 'agentTurn', message: job.description || '' },
+    delivery: null,
+    state: {
+      lastRunAtMs: job.lastRunAt ? new Date(job.lastRunAt).getTime() : null,
+      nextRunAtMs: job.nextRunAt ? new Date(job.nextRunAt).getTime() : null,
+      lastStatus: job.lastStatus || null,
+    },
+    description: job.description || '',
+    scheduleDisplay: `${job.schedule || '* * * * *'}${job.timezone ? ` (${job.timezone})` : ''}`,
+    timezone: job.timezone || 'UTC',
+    nextRun: job.nextRunAt || null,
+    lastRun: job.lastRunAt || null,
+  };
+}
+
 export async function GET() {
   try {
-    const output = execSync("openclaw cron list --json --all 2>/dev/null", {
-      timeout: 10000,
-      encoding: "utf-8",
-    });
-
-    const data = JSON.parse(output);
-    const jobs = (data.jobs || []).map((job: Record<string, unknown>) => ({
-      id: job.id,
-      agentId: job.agentId || "main",
-      name: job.name || "Unnamed",
-      enabled: job.enabled ?? true,
-      createdAtMs: job.createdAtMs,
-      updatedAtMs: job.updatedAtMs,
-      schedule: job.schedule,
-      sessionTarget: job.sessionTarget,
-      payload: job.payload,
-      delivery: job.delivery,
-      state: job.state,
-      // Derived fields for the UI
-      description: formatDescription(job),
-      scheduleDisplay: formatSchedule(job.schedule as Record<string, unknown>),
-      timezone: (job.schedule as Record<string, string>)?.tz || "UTC",
-      nextRun: (job.state as Record<string, unknown>)?.nextRunAtMs
-        ? new Date((job.state as Record<string, number>).nextRunAtMs).toISOString()
-        : null,
-      lastRun: (job.state as Record<string, unknown>)?.lastRunAtMs
-        ? new Date((job.state as Record<string, number>).lastRunAtMs).toISOString()
-        : null,
-    }));
-
+    const jobs = loadJobs().map(toUiJob);
     return NextResponse.json(jobs);
   } catch (error) {
-    console.error("Error fetching cron jobs from gateway:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch cron jobs from OpenClaw gateway" },
-      { status: 500 }
-    );
+    console.error('Error fetching cron jobs:', error);
+    return NextResponse.json({ error: 'Failed to fetch cron jobs' }, { status: 500 });
   }
 }
 
-function formatDescription(job: Record<string, unknown>): string {
-  const payload = job.payload as Record<string, unknown>;
-  if (!payload) return "";
-  if (payload.kind === "agentTurn") {
-    const msg = (payload.message as string) || "";
-    return msg.length > 120 ? msg.substring(0, 120) + "..." : msg;
-  }
-  if (payload.kind === "systemEvent") {
-    const text = (payload.text as string) || "";
-    return text.length > 120 ? text.substring(0, 120) + "..." : text;
-  }
-  return "";
-}
-
-function formatSchedule(schedule: Record<string, unknown>): string {
-  if (!schedule) return "Unknown";
-  switch (schedule.kind) {
-    case "cron":
-      return `${schedule.expr}${schedule.tz ? ` (${schedule.tz})` : ""}`;
-    case "every":
-      const ms = schedule.everyMs as number;
-      if (ms >= 3600000) return `Every ${ms / 3600000}h`;
-      if (ms >= 60000) return `Every ${ms / 60000}m`;
-      return `Every ${ms / 1000}s`;
-    case "at":
-      return `Once at ${schedule.at}`;
-    default:
-      return JSON.stringify(schedule);
-  }
-}
-
-// PUT: Toggle enable/disable a cron job
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
     const { id, enabled } = body;
-
     if (!id) {
-      return NextResponse.json({ error: "Job ID is required" }, { status: 400 });
+      return NextResponse.json({ error: 'Job ID is required' }, { status: 400 });
     }
 
-    const action = enabled ? "enable" : "disable";
-    // Use openclaw CLI to update the job
-    const output = execSync(
-      `openclaw cron ${action} ${id} --json 2>/dev/null || openclaw cron update ${id} --enabled=${enabled} --json 2>/dev/null`,
-      { timeout: 10000, encoding: "utf-8" }
-    );
+    const jobs = loadJobs();
+    const idx = jobs.findIndex((job) => job.id === id);
+    if (idx === -1) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    }
 
-    return NextResponse.json({ success: true, id, enabled });
+    jobs[idx].enabled = Boolean(enabled);
+    jobs[idx].updatedAt = new Date().toISOString();
+    saveJobs(jobs);
+
+    return NextResponse.json({ success: true, id, enabled: jobs[idx].enabled });
   } catch (error) {
-    console.error("Error updating cron job:", error);
-    return NextResponse.json(
-      { error: "Failed to update cron job" },
-      { status: 500 }
-    );
+    console.error('Error updating cron job:', error);
+    return NextResponse.json({ error: 'Failed to update cron job' }, { status: 500 });
   }
 }
 
-// DELETE: Remove a cron job
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-
+    const id = searchParams.get('id');
     if (!id) {
-      return NextResponse.json({ error: "Job ID is required" }, { status: 400 });
+      return NextResponse.json({ error: 'Job ID is required' }, { status: 400 });
     }
 
-    execSync(`openclaw cron remove ${id} 2>/dev/null`, {
-      timeout: 10000,
-      encoding: "utf-8",
-    });
+    const jobs = loadJobs().filter((job) => job.id !== id);
+    saveJobs(jobs);
 
     return NextResponse.json({ success: true, deleted: id });
   } catch (error) {
-    console.error("Error deleting cron job:", error);
-    return NextResponse.json(
-      { error: "Failed to delete cron job" },
-      { status: 500 }
-    );
+    console.error('Error deleting cron job:', error);
+    return NextResponse.json({ error: 'Failed to delete cron job' }, { status: 500 });
   }
 }

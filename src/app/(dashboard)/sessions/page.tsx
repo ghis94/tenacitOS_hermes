@@ -666,7 +666,7 @@ export default function SessionsPage() {
             💬 Session History
           </h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            All OpenClaw agent sessions — main, cron, sub-agents, and chats
+            All Hermes sessions — main, cron, sub-agents, and chats
           </p>
         </div>
 

@@ -94,7 +94,7 @@ export default function AboutPage() {
   const ownerUsername = BRANDING.ownerUsername;
   const description =
     BRANDING.agentDescription ||
-    `AI assistant for ${ownerUsername}. Powered by OpenClaw.`;
+    `AI assistant for ${ownerUsername}. Powered by Hermes.`;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">
@@ -183,7 +183,7 @@ export default function AboutPage() {
                   className="w-4 h-4"
                   style={{ color: "var(--accent)" }}
                 />
-                OpenClaw + Claude
+                Hermes + LocalAI/LLM Runtime
               </span>
             </div>
           </div>
@@ -326,8 +326,8 @@ export default function AboutPage() {
                 {agentName} {agentEmoji}
               </strong>
               , an AI agent running on{" "}
-              <span style={{ color: "var(--accent)" }}>OpenClaw</span> with
-              Claude as my brain.
+              <span style={{ color: "var(--accent)" }}>Hermes</span> with
+              a configurable LLM runtime as my brain.
             </p>
             <p>
               My purpose is to assist{" "}
@@ -494,8 +494,8 @@ export default function AboutPage() {
           >
             Built with <span style={{ color: "var(--accent)" }}>♥</span> on{" "}
             <a
-              href="https://github.com/openclaw/openclaw"
-              target="_blank"
+                href="https://github.com/ghis94/tenacitOS_hermes"
+target="_blank"
               rel="noopener noreferrer"
               style={{ color: "var(--accent)", textDecoration: "underline" }}
             >
