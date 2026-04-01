@@ -428,4 +428,6 @@ Then open: `http://localhost:3000`
 
 Notes:
 - Default mode is `hermes` + `demo` so the UI boots without a real Hermes backend.
-- Filesystem/API-backed Hermes providers will be extended in later phases.
+- `HERMES_MODE=filesystem` reads agents/sessions from mounted files and workspaces.
+- `HERMES_MODE=api` reads agents/sessions/system info from `HERMES_API_BASE_URL`.
+- External Hermes runtimes can push live activity events to `POST /api/activities` using `x-hermes-ingest-token: $HERMES_INGEST_TOKEN`.

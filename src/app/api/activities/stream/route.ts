@@ -22,6 +22,10 @@ export async function GET(request: NextRequest) {
       // Send initial ping
       send({ type: 'connected', ts: new Date().toISOString() });
 
+      const heartbeat = setInterval(() => {
+        send({ type: 'heartbeat', ts: new Date().toISOString() });
+      }, 15000);
+
       const poll = async () => {
         if (closed) return;
 
@@ -62,6 +66,7 @@ export async function GET(request: NextRequest) {
 
       request.signal?.addEventListener('abort', () => {
         closed = true;
+        clearInterval(heartbeat);
         try { controller.close(); } catch {}
       });
     },

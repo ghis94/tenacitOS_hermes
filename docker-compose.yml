@@ -19,6 +19,10 @@ services:
       HERMES_LOGS_DIR: ${HERMES_LOGS_DIR:-/hermes/logs}
       HERMES_AGENT_REGISTRY_PATH: ${HERMES_AGENT_REGISTRY_PATH:-/hermes/agents.json}
       HERMES_INGEST_TOKEN: ${HERMES_INGEST_TOKEN:-change-me}
+      HERMES_API_BASE_URL: ${HERMES_API_BASE_URL:-http://host.docker.internal:8787}
+      HERMES_API_TOKEN: ${HERMES_API_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
       - ${HERMES_HOST_DIR:-./data/hermes-demo}:/hermes:ro

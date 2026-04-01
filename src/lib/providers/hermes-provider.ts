@@ -13,6 +13,8 @@ import type {
 } from '@/lib/providers/types';
 import {
   HERMES_AGENT_REGISTRY_PATH,
+  HERMES_API_BASE_URL,
+  HERMES_API_TOKEN,
   HERMES_DEMO_AGENTS_PATH,
   HERMES_DEMO_MESSAGES_DIR,
   HERMES_DEMO_SESSIONS_PATH,
@@ -38,6 +40,18 @@ interface HermesRegistryAgent {
   currentTask?: string;
 }
 
+interface AgentApiPayload {
+  agents?: HermesRegistryAgent[];
+}
+
+interface SessionApiPayload {
+  sessions?: DashboardSession[];
+}
+
+interface SessionMessagesPayload {
+  messages?: DashboardSessionMessage[];
+}
+
 function exists(filePath: string): boolean {
   try {
     return fs.existsSync(filePath);
@@ -55,10 +69,41 @@ function readJsonFile<T>(filePath: string, fallback: T): T {
   }
 }
 
+function inferStatusFromWorkspace(workspacePath: string): {
+  status: DashboardAgent['status'];
+  lastActivity?: string;
+} {
+  try {
+    const memoryDir = path.join(workspacePath, 'memory');
+    if (!exists(memoryDir)) return { status: 'unknown' };
+
+    const files = fs
+      .readdirSync(memoryDir)
+      .filter((entry) => entry.endsWith('.md'))
+      .map((entry) => ({
+        entry,
+        fullPath: path.join(memoryDir, entry),
+        stat: fs.statSync(path.join(memoryDir, entry)),
+      }))
+      .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+
+    if (files.length === 0) return { status: 'unknown' };
+
+    const latest = files[0].stat.mtime;
+    const ageMs = Date.now() - latest.getTime();
+    if (ageMs < 5 * 60 * 1000) return { status: 'online', lastActivity: latest.toISOString() };
+    if (ageMs < 30 * 60 * 1000) return { status: 'idle', lastActivity: latest.toISOString() };
+    return { status: 'offline', lastActivity: latest.toISOString() };
+  } catch {
+    return { status: 'unknown' };
+  }
+}
+
 function inferAgentsFromFilesystem(): HermesRegistryAgent[] {
   const agents: HermesRegistryAgent[] = [];
 
   if (exists(HERMES_MAIN_WORKSPACE)) {
+    const inferred = inferStatusFromWorkspace(HERMES_MAIN_WORKSPACE);
     agents.push({
       id: 'main',
       name: process.env.NEXT_PUBLIC_AGENT_NAME || 'Hermes',
@@ -66,7 +111,8 @@ function inferAgentsFromFilesystem(): HermesRegistryAgent[] {
       color: '#7c3aed',
       model: process.env.DEFAULT_MODEL || 'gpt-5.4',
       workspace: HERMES_MAIN_WORKSPACE,
-      status: 'unknown',
+      status: inferred.status,
+      lastActivity: inferred.lastActivity,
     });
   }
 
@@ -74,14 +120,17 @@ function inferAgentsFromFilesystem(): HermesRegistryAgent[] {
     if (!exists(HERMES_WORKSPACES_DIR)) return agents;
     for (const entry of fs.readdirSync(HERMES_WORKSPACES_DIR, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name === 'main') continue;
+      const workspace = path.join(HERMES_WORKSPACES_DIR, entry.name);
+      const inferred = inferStatusFromWorkspace(workspace);
       agents.push({
         id: entry.name,
         name: entry.name,
         emoji: '🧠',
         color: '#2563eb',
         model: process.env.DEFAULT_MODEL || 'gpt-5.4',
-        workspace: path.join(HERMES_WORKSPACES_DIR, entry.name),
-        status: 'unknown',
+        workspace,
+        status: inferred.status,
+        lastActivity: inferred.lastActivity,
       });
     }
   } catch {
@@ -94,31 +143,38 @@ function inferAgentsFromFilesystem(): HermesRegistryAgent[] {
 function normalizeAgents(rawAgents: HermesRegistryAgent[]): DashboardAgent[] {
   const byId = new Map(rawAgents.map((agent) => [agent.id, agent]));
 
-  return rawAgents.map((agent) => ({
-    id: agent.id,
-    name: agent.name || agent.id,
-    emoji: agent.emoji || '🤖',
-    color: agent.color || '#666666',
-    model: agent.model || process.env.DEFAULT_MODEL || 'gpt-5.4',
-    workspace:
+  return rawAgents.map((agent) => {
+    const workspace =
       agent.workspace ||
       (agent.id === 'main'
         ? HERMES_MAIN_WORKSPACE
-        : path.join(HERMES_WORKSPACES_DIR, agent.id)),
-    status: agent.status || 'unknown',
-    lastActivity: agent.lastActivity,
-    activeSessions: 0,
-    allowAgents: agent.subagents || [],
-    allowAgentsDetails: (agent.subagents || []).map((id) => {
-      const sub = byId.get(id);
-      return {
-        id,
-        name: sub?.name || id,
-        emoji: sub?.emoji || '🤖',
-        color: sub?.color || '#666666',
-      };
-    }),
-  }));
+        : path.join(HERMES_WORKSPACES_DIR, agent.id));
+    const inferred = inferStatusFromWorkspace(workspace);
+    const status = agent.status || inferred.status || 'unknown';
+    const lastActivity = agent.lastActivity || inferred.lastActivity;
+
+    return {
+      id: agent.id,
+      name: agent.name || agent.id,
+      emoji: agent.emoji || '🤖',
+      color: agent.color || '#666666',
+      model: agent.model || process.env.DEFAULT_MODEL || 'gpt-5.4',
+      workspace,
+      status,
+      lastActivity,
+      activeSessions: 0,
+      allowAgents: agent.subagents || [],
+      allowAgentsDetails: (agent.subagents || []).map((id) => {
+        const sub = byId.get(id);
+        return {
+          id,
+          name: sub?.name || id,
+          emoji: sub?.emoji || '🤖',
+          color: sub?.color || '#666666',
+        };
+      }),
+    };
+  });
 }
 
 function getDemoAgents(): DashboardAgent[] {
@@ -210,30 +266,79 @@ function formatUptime(seconds: number): string {
   return parts.join(' ');
 }
 
+async function fetchHermesApi<T>(resource: string, fallback: T): Promise<T> {
+  try {
+    const url = new URL(resource, HERMES_API_BASE_URL.endsWith('/') ? HERMES_API_BASE_URL : `${HERMES_API_BASE_URL}/`);
+    const response = await fetch(url.toString(), {
+      headers: HERMES_API_TOKEN
+        ? {
+            Authorization: `Bearer ${HERMES_API_TOKEN}`,
+          }
+        : undefined,
+      cache: 'no-store',
+    });
+
+    if (!response.ok) return fallback;
+    return (await response.json()) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function loadFilesystemSessions(): DashboardSession[] {
+  try {
+    if (!exists(HERMES_SESSIONS_DIR)) return [];
+    const sessions: DashboardSession[] = [];
+    for (const entry of fs.readdirSync(HERMES_SESSIONS_DIR, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+      const data = readJsonFile<DashboardSession | null>(path.join(HERMES_SESSIONS_DIR, entry.name), null);
+      if (data) sessions.push(data);
+    }
+    return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+function loadFilesystemSessionMessages(sessionId: string): DashboardSessionMessage[] {
+  const jsonPath = path.join(HERMES_SESSIONS_DIR, `${sessionId}.json`);
+  const jsonlPath = path.join(HERMES_SESSIONS_DIR, `${sessionId}.jsonl`);
+
+  if (exists(jsonPath)) {
+    const data = readJsonFile<DashboardSessionMessage[] | { messages?: DashboardSessionMessage[] }>(jsonPath, []);
+    return Array.isArray(data) ? data : data.messages || [];
+  }
+
+  if (exists(jsonlPath)) {
+    return parseJsonlMessages(fs.readFileSync(jsonlPath, 'utf-8'));
+  }
+
+  return [];
+}
+
 export class HermesProvider implements DashboardProvider {
   readonly name = 'hermes' as const;
 
   async listAgents(): Promise<DashboardAgent[]> {
-    return HERMES_MODE === 'demo' ? getDemoAgents() : getFilesystemAgents();
+    if (HERMES_MODE === 'demo') return getDemoAgents();
+    if (HERMES_MODE === 'api') {
+      const payload = await fetchHermesApi<AgentApiPayload | DashboardAgent[]>('/agents', []);
+      const agents = Array.isArray(payload) ? payload : payload.agents || [];
+      return normalizeAgents(agents as HermesRegistryAgent[]);
+    }
+    return getFilesystemAgents();
   }
 
   async listSessions(): Promise<DashboardSession[]> {
     if (HERMES_MODE === 'demo') {
       return readJsonFile<DashboardSession[]>(HERMES_DEMO_SESSIONS_PATH, []);
     }
-
-    try {
-      if (!exists(HERMES_SESSIONS_DIR)) return [];
-      const sessions: DashboardSession[] = [];
-      for (const entry of fs.readdirSync(HERMES_SESSIONS_DIR, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-        const data = readJsonFile<DashboardSession | null>(path.join(HERMES_SESSIONS_DIR, entry.name), null);
-        if (data) sessions.push(data);
-      }
+    if (HERMES_MODE === 'api') {
+      const payload = await fetchHermesApi<SessionApiPayload | DashboardSession[]>('/sessions', []);
+      const sessions = Array.isArray(payload) ? payload : payload.sessions || [];
       return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-    } catch {
-      return [];
     }
+    return loadFilesystemSessions();
   }
 
   async getSessionMessages(sessionId: string): Promise<DashboardSessionMessage[]> {
@@ -243,20 +348,11 @@ export class HermesProvider implements DashboardProvider {
         [],
       );
     }
-
-    const jsonPath = path.join(HERMES_SESSIONS_DIR, `${sessionId}.json`);
-    const jsonlPath = path.join(HERMES_SESSIONS_DIR, `${sessionId}.jsonl`);
-
-    if (exists(jsonPath)) {
-      const data = readJsonFile<DashboardSessionMessage[] | { messages?: DashboardSessionMessage[] }>(jsonPath, []);
-      return Array.isArray(data) ? data : data.messages || [];
+    if (HERMES_MODE === 'api') {
+      const payload = await fetchHermesApi<SessionMessagesPayload | DashboardSessionMessage[]>(`/sessions/${sessionId}`, []);
+      return Array.isArray(payload) ? payload : payload.messages || [];
     }
-
-    if (exists(jsonlPath)) {
-      return parseJsonlMessages(fs.readFileSync(jsonlPath, 'utf-8'));
-    }
-
-    return [];
+    return loadFilesystemSessionMessages(sessionId);
   }
 
   async getSystemInfo(): Promise<DashboardSystemInfo> {
@@ -289,6 +385,41 @@ export class HermesProvider implements DashboardProvider {
             icon: 'Server',
             lastActivity: new Date().toISOString(),
             detail: process.env.LOCALAI_BASE_URL || 'OpenAI-compatible endpoint',
+          },
+        ],
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (HERMES_MODE === 'api') {
+      return fetchHermesApi<DashboardSystemInfo>('/system', {
+        agent: {
+          name: process.env.NEXT_PUBLIC_AGENT_NAME || 'Hermes',
+          creature: 'Autonomous CLI Agent',
+          emoji: process.env.NEXT_PUBLIC_AGENT_EMOJI || '🤖',
+        },
+        system: {
+          uptime: Math.floor(process.uptime()),
+          uptimeFormatted: formatUptime(process.uptime()),
+          nodeVersion: process.version,
+          model: process.env.DEFAULT_MODEL || 'gpt-5.4',
+          workspacePath: HERMES_MAIN_WORKSPACE,
+          platform: os.platform(),
+          hostname: os.hostname(),
+          memory: {
+            total: os.totalmem(),
+            free: os.freemem(),
+            used: os.totalmem() - os.freemem(),
+          },
+        },
+        integrations: [
+          {
+            id: 'hermes-api',
+            name: 'Hermes API',
+            status: 'configured',
+            icon: 'Bot',
+            lastActivity: null,
+            detail: HERMES_API_BASE_URL,
           },
         ],
         timestamp: new Date().toISOString(),

@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { logActivity, getActivities } from '@/lib/activities-db';
+
+import { getActivities, logActivity } from '@/lib/activities-db';
+
+function hasIngestToken(request: NextRequest): boolean {
+  const expected = process.env.HERMES_INGEST_TOKEN;
+  if (!expected) return false;
+  const header = request.headers.get('x-hermes-ingest-token') || request.headers.get('authorization');
+  if (!header) return false;
+  if (header === expected) return true;
+  if (header.startsWith('Bearer ')) return header.slice(7) === expected;
+  return false;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,7 +28,6 @@ export async function GET(request: NextRequest) {
 
     const result = getActivities({ type, status, agent, startDate, endDate, sort, limit, offset });
 
-    // CSV export
     if (format === 'csv') {
       const header = 'id,timestamp,type,description,status,duration_ms,tokens_used,agent\n';
       const rows = result.activities.map((a) => [
@@ -48,8 +58,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    if (!hasIngestToken(request)) {
+      return NextResponse.json({ error: 'Invalid or missing Hermes ingest token' }, { status: 401 });
+    }
+
     const body = await request.json();
 
     if (!body.type || !body.description || !body.status) {

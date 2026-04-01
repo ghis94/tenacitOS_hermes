@@ -36,3 +36,6 @@ export const HERMES_DEMO_SESSIONS_PATH = path.join(HERMES_DEMO_DIR, 'sessions.js
 export const HERMES_DEMO_SYSTEM_PATH = path.join(HERMES_DEMO_DIR, 'system.json');
 export const HERMES_DEMO_MESSAGES_DIR = path.join(HERMES_DEMO_DIR, 'session-messages');
 export const HERMES_INGEST_TOKEN = process.env.HERMES_INGEST_TOKEN || '';
+export const HERMES_API_BASE_URL =
+  process.env.HERMES_API_BASE_URL || 'http://host.docker.internal:8787';
+export const HERMES_API_TOKEN = process.env.HERMES_API_TOKEN || '';
